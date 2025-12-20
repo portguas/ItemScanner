@@ -31,11 +31,11 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'CMP Example',
+      title: '物品扫描',
       theme: ThemeData(
         primarySwatch: Colors.blue,
       ),
-      home: const MyHomePage(title: 'CMP Example Home Page'),
+      home: const MyHomePage(title: '物品扫描'),
     );
   }
 }
@@ -53,8 +53,7 @@ class _MyHomePageState extends State<MyHomePage> {
   final MethodChannel _methodChannel =
       const MethodChannel('com.example.pda/native_to_flutter');
 
-  late final NetworkClient _networkClient;
-  late final TodoRepository _todoRepository;
+
   String _status = 'Ready';
   bool _checkingZip = false;
   bool _permissionsRequested = false;
@@ -62,27 +61,6 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _networkClient = NetworkClient(
-      config: NetworkConfig(
-        baseUrl: 'https://api.example.com',
-        tokenProvider: () async => 'demo_token',
-        // 示例：本地桩返回，避免依赖真实服务。
-        stubResolver: (req) {
-          if (req.path == '/todos/1') {
-            return const StubResponse(
-              statusCode: 200,
-              data: {
-                'code': 200,
-                'message': 'success',
-                'data': {'id': 1, 'title': '示例待办'},
-              },
-            );
-          }
-          return null;
-        },
-      ),
-    );
-    _todoRepository = TodoRepository(_networkClient);
 
     // 应用进入首页时请求权限
     _requestPermissionsOnStart();
@@ -151,23 +129,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _makeRequest() async {
-    setState(() {
-      _status = 'Loading...';
-    });
-    LogUtil.d('[UI] Button pressed');
-
-    try {
-      final todo = await _todoRepository.fetchTodo();
-      setState(() {
-        _status = 'Success: ${todo.title}';
-      });
-      LogUtil.i('[UI] Request successful');
-    } catch (e) {
-      setState(() {
-        _status = 'Error: $e';
-      });
-      LogUtil.e('[UI] Request failed: $e');
-    }
+   
   }
 
   @override
@@ -292,19 +254,6 @@ class ScanResult {
   }
 }
 
-class TodoRepository {
-  TodoRepository(this._client);
-
-  final NetworkClient _client;
-
-  Future<Todo> fetchTodo() {
-    return _client.get<Todo>(
-      '/todos/1',
-      parser: (json) => Todo.fromJson(json as Map<String, dynamic>),
-    );
-  }
-}
-
 class _ProgressDialog extends StatelessWidget {
   const _ProgressDialog({required this.message});
 
@@ -320,23 +269,6 @@ class _ProgressDialog extends StatelessWidget {
           Expanded(child: Text(message)),
         ],
       ),
-    );
-  }
-}
-
-class Todo {
-  final int id;
-  final String title;
-
-  Todo({
-    required this.id,
-    required this.title,
-  });
-
-  factory Todo.fromJson(Map<String, dynamic> json) {
-    return Todo(
-      id: json['id'] as int,
-      title: json['title'] as String,
     );
   }
 }
