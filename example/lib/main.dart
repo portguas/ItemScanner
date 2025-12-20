@@ -7,9 +7,11 @@ import 'package:flutter/services.dart';
 import 'package:logging_util/logging_util.dart';
 import 'package:path/path.dart' as p;
 import 'package:ui_design_system/ui_design_system.dart';
+import 'package:provider/provider.dart';
 import 'services/scan_service.dart';
 import 'utils/app_directories.dart';
 import 'utils/permission_service.dart';
+import 'state/home_state.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -31,12 +33,19 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '物品扫描',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<HomeState>(
+          create: (_) => HomeState(),
+        ),
+      ],
+      child: MaterialApp(
+        title: '物品扫描',
+        theme: ThemeData(
+          primarySwatch: Colors.blue,
+        ),
+        home: const MyHomePage(title: '物品扫描'),
       ),
-      home: const MyHomePage(title: '物品扫描'),
     );
   }
 }
@@ -54,13 +63,8 @@ class _MyHomePageState extends State<MyHomePage> {
   final MethodChannel _methodChannel =
       const MethodChannel('com.example.pda/native_to_flutter');
 
-  String _status = 'Ready';
-  bool _checkingZip = false;
   bool _permissionsRequested = false;
   final ScanService _scanService = const ScanService();
-  String? _currentTitle;
-  Map<String, String> _scalarData = {};
-  Map<String, List<Map<String, dynamic>>> _tableData = {};
 
   @override
   void initState() {
@@ -147,6 +151,10 @@ class _MyHomePageState extends State<MyHomePage> {
     final bodyStyle =
         textTheme.bodyMedium ?? const TextStyle(fontSize: 14, height: 1.4);
     final labelStyle = bodyStyle.copyWith(fontWeight: FontWeight.w600);
+    final state = context.watch<HomeState>();
+    final hasData = state.currentTitle != null ||
+        state.scalarData.isNotEmpty ||
+        state.tableData.isNotEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -154,7 +162,7 @@ class _MyHomePageState extends State<MyHomePage> {
         centerTitle: true,
         actions: [
           IconButton(
-            onPressed: _checkingZip ? null : _checkPdaZip,
+            onPressed: state.checkingZip ? null : _checkPdaZip,
             icon: Icon(Icons.drive_folder_upload_outlined),
             tooltip: '检查 pda.zip',
           ),
@@ -166,43 +174,56 @@ class _MyHomePageState extends State<MyHomePage> {
           mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            Text(
-              _status,
-              style: AppTextStyles.headline,
-              textAlign: TextAlign.left,
-            ),
-            const SizedBox(height: 12),
-            CustomButton(
-              label: '模拟扫描',
-              onPressed: _makeRequest,
-            ),
-            const SizedBox(height: 12),
-            if (_currentTitle != null) ...[
+            if (kDebugMode) ...[
               Text(
-                _currentTitle!,
+                state.status,
+                style: AppTextStyles.headline,
+                textAlign: TextAlign.left,
+              ),
+              const SizedBox(height: 12),
+              CustomButton(
+                label: '模拟扫描',
+                onPressed: _makeRequest,
+              ),
+              const SizedBox(height: 12),
+            ],
+            if (state.currentTitle != null && hasData) ...[
+              Text(
+                state.currentTitle!,
                 style: titleStyle,
                 textAlign: TextAlign.left,
               ),
               const SizedBox(height: 8),
             ],
             Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (_scalarData.isNotEmpty)
-                      _buildInfoCard(labelStyle, bodyStyle),
-                    ..._tableData.entries.map(
-                      (entry) => _buildTableCard(
-                        entry.key,
-                        entry.value,
-                        subtitleStyle,
-                        bodyStyle,
+              child: hasData
+                  ? SingleChildScrollView(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (state.scalarData.isNotEmpty)
+                            _buildInfoCard(
+                              labelStyle,
+                              bodyStyle,
+                              state.scalarData,
+                            ),
+                          ...state.tableData.entries.map(
+                            (entry) => _buildTableCard(
+                              entry.key,
+                              entry.value,
+                              subtitleStyle,
+                              bodyStyle,
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : const Center(
+                      child: Text(
+                        '暂无数据，请扫描',
+                        style: TextStyle(fontSize: 16),
                       ),
                     ),
-                  ],
-                ),
-              ),
             ),
           ],
         ),
@@ -211,7 +232,8 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _checkPdaZip() async {
-    if (_checkingZip) return;
+    final homeState = context.read<HomeState>();
+    if (homeState.checkingZip) return;
     LogUtil.i('[ZipCheck] 开始检查 pda.zip');
 
     final confirm = await showDialog<bool>(
@@ -238,10 +260,11 @@ class _MyHomePageState extends State<MyHomePage> {
       return;
     }
 
-    setState(() {
-      _checkingZip = true;
-      _status = '正在检查/解压 pda.zip...';
-    });
+    // 清空当前显示
+    homeState.clearDisplay();
+    homeState
+      ..setChecking(true)
+      ..setStatus('正在检查/解压 pda.zip...');
 
     BuildContext? dialogContext;
     final progress = ValueNotifier<double?>(null);
@@ -294,11 +317,7 @@ class _MyHomePageState extends State<MyHomePage> {
       if (dialogContext != null && Navigator.of(dialogContext!).canPop()) {
         Navigator.of(dialogContext!).pop();
       }
-      if (mounted) {
-        setState(() {
-          _checkingZip = false;
-        });
-      }
+      homeState.setChecking(false);
       LogUtil.i('[ZipCheck] 完成: ${opResult?.status ?? '未知结果'}');
     }
   }
@@ -340,26 +359,23 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _applyResult(OperationResult result, {bool showSnack = true}) {
-    if (mounted) {
-      setState(() {
-        _status = result.status;
-      });
-      if (showSnack) {
-        _showSnack(result.snack);
-      }
+    if (!mounted) return;
+    context.read<HomeState>().setStatus(result.status);
+    if (showSnack) {
+      _showSnack(result.snack);
     }
   }
 
   void _showDocument(DocumentData doc) {
     if (!mounted) return;
-    setState(() {
-      _currentTitle = doc.title;
-      _scalarData = doc.scalar;
-      _tableData = doc.tables;
-    });
+    context.read<HomeState>().setDocument(doc);
   }
 
-  Widget _buildInfoCard(TextStyle labelStyle, TextStyle valueStyle) {
+  Widget _buildInfoCard(
+    TextStyle labelStyle,
+    TextStyle valueStyle,
+    Map<String, String> scalar,
+  ) {
     return Card(
       elevation: 0,
       color: Colors.grey.shade100,
@@ -368,7 +384,7 @@ class _MyHomePageState extends State<MyHomePage> {
         padding: const EdgeInsets.all(12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          children: _scalarData.entries
+          children: scalar.entries
               .map(
                 (e) => Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),

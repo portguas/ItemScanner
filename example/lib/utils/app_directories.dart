@@ -91,7 +91,12 @@ class AppDirectories {
       // 确保 pda 目录存在，若存在则清空
       if (await pdaDir.exists()) {
         // 删除已有内容，保留目录
-        await _clearDirectory(pdaDir);
+        await _clearDirectory(
+          pdaDir,
+          onProgress: (progress, action) {
+            onProgress?.call(progress * 0.2, action); // 前 20% 用于删除
+          },
+        );
         LogUtil.i('$_logTag [Extract] 清空已存在的 pda 目录: ${pdaDir.path}');
       } else {
         await pdaDir.create(recursive: true);
@@ -125,8 +130,10 @@ class AppDirectories {
 
           processed += file.size ?? data.length;
           if (onProgress != null && totalBytes > 0) {
+            // 删除阶段占 20%，解压占 80%
+            final progress = 0.2 + (processed / totalBytes).clamp(0, 1) * 0.8;
             onProgress(
-              (processed / totalBytes).clamp(0, 1),
+              progress.clamp(0, 1),
               filename,
             );
           }
@@ -150,18 +157,36 @@ class AppDirectories {
   }
 
   /// 清空目录下的所有文件和子目录，但保留目录本身
-  static Future<void> _clearDirectory(Directory dir) async {
-    await for (final entity in dir.list(recursive: false)) {
+  static Future<void> _clearDirectory(
+    Directory dir, {
+    void Function(double progress, String action)? onProgress,
+  }) async {
+    final entities = await dir.list(recursive: false).toList();
+    final total = entities.length;
+    var processed = 0;
+
+    for (final entity in entities) {
       try {
+        final name = entity.uri.pathSegments.isNotEmpty
+            ? entity.uri.pathSegments.last
+            : entity.path;
+        onProgress?.call(
+          total == 0 ? 0 : (processed / total).clamp(0, 1),
+          '删除: $name',
+        );
+
         if (entity is File) {
           await entity.delete();
         } else if (entity is Directory) {
           await entity.delete(recursive: true);
         }
+        processed++;
       } catch (e) {
         LogUtil.w('$_logTag [Extract] 删除文件失败: $e');
       }
     }
+
+    onProgress?.call(1, '删除完成');
   }
 
   /// 获取解压后的pda目录
