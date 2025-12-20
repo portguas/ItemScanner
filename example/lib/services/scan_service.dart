@@ -1,27 +1,10 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:logging_util/logging_util.dart';
 import 'package:path/path.dart' as p;
 
 import '../utils/app_directories.dart';
-
-class ScanResult {
-  final String? barcode;
-  final Map<String, dynamic> raw;
-
-  ScanResult({
-    required this.raw,
-    this.barcode,
-  });
-
-  factory ScanResult.fromMap(Map<String, dynamic> map) {
-    final code = map['barcode'] as String? ?? map['data'] as String?;
-    return ScanResult(
-      raw: map,
-      barcode: code,
-    );
-  }
-}
 
 class OperationResult {
   final String status;
@@ -33,50 +16,89 @@ class OperationResult {
   });
 }
 
+class DocumentData {
+  final String title;
+  final Map<String, String> scalar;
+  final Map<String, List<Map<String, dynamic>>> tables;
+  final String path;
+
+  const DocumentData({
+    required this.title,
+    required this.scalar,
+    required this.tables,
+    required this.path,
+  });
+}
+
 /// 负责处理扫码结果与 zip 解压逻辑
 class ScanService {
   const ScanService();
 
-  /// 根据条码在解压目录查找同名文件
-  Future<OperationResult> handleBarcode(String barcode) async {
+  /// 在 pda 目录查找与条码同名的文件（不含扩展名），解析 JSON 返回业务数据
+  Future<DocumentData?> loadDocument(String barcode) async {
     final trimmed = barcode.trim();
     if (trimmed.isEmpty) {
-      return const OperationResult(
-        status: '条码为空',
-        snack: '条码为空',
-      );
+      LogUtil.w('[Scan] 收到空条码，忽略');
+      return null;
     }
-
-    LogUtil.i('[Scan] 收到条码: $trimmed');
 
     final extractDir = await AppDirectories.getPdaExtractDirectory();
-    final dirPath = extractDir.path;
-    final dirExists = await extractDir.exists();
-    if (!dirExists) {
-      LogUtil.w('[Scan] 解压目录不存在: $dirPath');
-      return OperationResult(
-        status: '解压目录不存在',
-        snack: '解压目录不存在：$dirPath',
-      );
+    if (!await extractDir.exists()) {
+      LogUtil.w('[Scan] 解压目录不存在: ${extractDir.path}');
+      return null;
     }
 
-    final targetPath = p.join(dirPath, trimmed);
-    final file = File(targetPath);
-    final exists = await file.exists();
-    if (!exists) {
-      LogUtil.w('[Scan] 文件未找到: $targetPath');
-      return OperationResult(
-        status: '文件未找到',
-        snack: '文件未找到：$trimmed',
-      );
+    File? target;
+    await for (final entity in extractDir.list(recursive: true)) {
+      if (entity is! File) continue;
+      if (p.basenameWithoutExtension(entity.path) == trimmed) {
+        target = entity;
+        break;
+      }
     }
 
-    LogUtil.i('[Scan] 找到文件: $targetPath');
-    await _onPdaFileFound(file);
-    return OperationResult(
-      status: '找到文件：$trimmed',
-      snack: '找到文件：$trimmed',
-    );
+    if (target == null) {
+      LogUtil.w('[Scan] 文件未找到: $trimmed');
+      return null;
+    }
+
+    try {
+      final content = await target.readAsString();
+      final decoded = jsonDecode(content);
+      if (decoded is! Map) {
+        LogUtil.w('[Scan] 文件格式非 Map，无法解析: ${target.path}');
+        return null;
+      }
+      final map = Map<String, dynamic>.from(decoded as Map);
+      final title = map['title'] as String? ?? trimmed;
+      final data = map['data'] as Map<String, dynamic>? ?? {};
+
+      final scalar = <String, String>{};
+      final tables = <String, List<Map<String, dynamic>>>{};
+
+      data.forEach((key, value) {
+        if (value is List) {
+          final list = value
+              .whereType<Map>()
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
+          tables[key] = list;
+        } else {
+          scalar[key] = '${value ?? ''}';
+        }
+      });
+
+      LogUtil.i('[Scan] 解析文件成功: ${target.path}');
+      return DocumentData(
+        title: title,
+        scalar: scalar,
+        tables: tables,
+        path: target.path,
+      );
+    } catch (e) {
+      LogUtil.e('[Scan] 解析文件失败: $e');
+      return null;
+    }
   }
 
   /// 仅检查 pda.zip 是否存在
@@ -124,9 +146,5 @@ class ScanService {
       status: '解压完成',
       snack: 'pda.zip 解压完成：$extractPath',
     );
-  }
-
-  Future<void> _onPdaFileFound(File file) async {
-    // TODO: 实现找到文件后的处理逻辑
   }
 }

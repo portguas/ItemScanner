@@ -1,11 +1,15 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:logging_util/logging_util.dart';
+import 'package:path/path.dart' as p;
 import 'package:ui_design_system/ui_design_system.dart';
-import 'utils/permission_service.dart';
 import 'services/scan_service.dart';
+import 'utils/app_directories.dart';
+import 'utils/permission_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -54,6 +58,9 @@ class _MyHomePageState extends State<MyHomePage> {
   bool _checkingZip = false;
   bool _permissionsRequested = false;
   final ScanService _scanService = const ScanService();
+  String? _currentTitle;
+  Map<String, String> _scalarData = {};
+  Map<String, List<Map<String, dynamic>>> _tableData = {};
 
   @override
   void initState() {
@@ -75,10 +82,11 @@ class _MyHomePageState extends State<MyHomePage> {
           final Map<String, dynamic> resultMap =
               Map<String, dynamic>.from(call.arguments);
 
-          final result = ScanResult.fromMap(resultMap);
+          final barcode =
+              (resultMap['barcode'] ?? resultMap['data'])?.toString().trim() ?? '';
 
-          if (result.barcode != null) {
-            await _handleBarcode(result.barcode!);
+          if (barcode.isNotEmpty) {
+            await _handleBarcode(barcode);
           }
         } catch (e, stackTrace) {
           LogUtil.d('处理扫描结果时发生异常: $e');
@@ -131,6 +139,15 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final titleStyle = textTheme.titleLarge ??
+        const TextStyle(fontSize: 20, fontWeight: FontWeight.w700);
+    final subtitleStyle = textTheme.titleMedium ??
+        const TextStyle(fontSize: 16, fontWeight: FontWeight.w600);
+    final bodyStyle =
+        textTheme.bodyMedium ?? const TextStyle(fontSize: 14, height: 1.4);
+    final labelStyle = bodyStyle.copyWith(fontWeight: FontWeight.w600);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
@@ -143,19 +160,49 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ],
       ),
-      body: Center(
+      body: Padding(
+        padding: const EdgeInsets.all(16),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
             Text(
               _status,
               style: AppTextStyles.headline,
-              textAlign: TextAlign.center,
+              textAlign: TextAlign.left,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             CustomButton(
               label: '模拟扫描',
               onPressed: _makeRequest,
+            ),
+            const SizedBox(height: 12),
+            if (_currentTitle != null) ...[
+              Text(
+                _currentTitle!,
+                style: titleStyle,
+                textAlign: TextAlign.left,
+              ),
+              const SizedBox(height: 8),
+            ],
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_scalarData.isNotEmpty)
+                      _buildInfoCard(labelStyle, bodyStyle),
+                    ..._tableData.entries.map(
+                      (entry) => _buildTableCard(
+                        entry.key,
+                        entry.value,
+                        subtitleStyle,
+                        bodyStyle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
@@ -232,22 +279,34 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _mockScan() async {
-    const mockBarcode = 'demo_file.txt';
-    LogUtil.i('[MockScan] 模拟扫码: $mockBarcode');
-    _applyResult(
-      const OperationResult(
-        status: '模拟扫码中: demo_file.txt',
-        snack: '模拟扫码',
-      ),
-      showSnack: false,
-    );
-    await _handleBarcode(mockBarcode);
+    const mockBarcode = 'OUT202512160001';
+    try {
+      await _ensureMockFile(mockBarcode);
+      await _handleBarcode(mockBarcode);
+    } catch (e, st) {
+      final msg = '加载 mock 数据失败：$e';
+      LogUtil.e('[MockScan] 失败: $e\n$st');
+      _applyResult(OperationResult(status: msg, snack: msg));
+    }
   }
 
   Future<void> _handleBarcode(String barcode) async {
     try {
-      final result = await _scanService.handleBarcode(barcode);
-      _applyResult(result);
+      final doc = await _scanService.loadDocument(barcode);
+      if (doc == null) {
+        final msg = '文件未找到或解析失败：$barcode';
+        _applyResult(OperationResult(status: msg, snack: msg));
+        return;
+      }
+      _showDocument(doc);
+      _applyResult(
+        OperationResult(
+          status: '找到文件：$barcode',
+          snack: '找到文件：$barcode',
+        ),
+        showSnack: false,
+      );
+      _showSnack('找到文件：$barcode');
     } catch (e, st) {
       final msg = '处理条码失败：$e';
       LogUtil.e('[Scan] 处理条码异常: $e\n$st');
@@ -266,11 +325,141 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  void _showDocument(DocumentData doc) {
+    if (!mounted) return;
+    setState(() {
+      _currentTitle = doc.title;
+      _scalarData = doc.scalar;
+      _tableData = doc.tables;
+    });
+  }
+
+  Widget _buildInfoCard(TextStyle labelStyle, TextStyle valueStyle) {
+    return Card(
+      elevation: 0,
+      color: Colors.grey.shade100,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: _scalarData.entries
+              .map(
+                (e) => Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 100,
+                        child: Text(
+                          e.key,
+                          style: labelStyle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          e.value,
+                          style: valueStyle,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTableCard(
+    String title,
+    List<Map<String, dynamic>> rows,
+    TextStyle titleStyle,
+    TextStyle cellStyle,
+  ) {
+    if (rows.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final headers = rows.first.keys.toList();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: titleStyle,
+            ),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: DataTable(
+                columnSpacing: 12,
+                headingRowHeight: 36,
+                dataRowHeight: 48,
+                columns: headers
+                    .map(
+                      (h) => DataColumn(
+                        label: Text(
+                          h,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    )
+                    .toList(),
+                rows: rows
+                    .map(
+                      (row) => DataRow(
+                        cells: headers
+                            .map(
+                              (h) => DataCell(
+                                ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    minWidth: 80,
+                                    maxWidth: 200,
+                                  ),
+                                  child: Text(
+                                    '${row[h] ?? ''}',
+                                    style: cellStyle,
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showSnack(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message)),
     );
+  }
+
+  Future<void> _ensureMockFile(String barcode) async {
+    final extractDir = await AppDirectories.getPdaExtractDirectory();
+    if (!await extractDir.exists()) {
+      await extractDir.create(recursive: true);
+    }
+    final file = File(p.join(extractDir.path, '$barcode.json'));
+    if (await file.exists()) return;
+
+    final data = await rootBundle.loadString('assets/data/$barcode.json');
+    await file.writeAsString(data);
   }
 }
 
