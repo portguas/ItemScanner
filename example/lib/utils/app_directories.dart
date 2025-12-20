@@ -84,7 +84,7 @@ class AppDirectories {
 
       final filesDir = await getFilesDirectory();
       final pdaDir = Directory('${filesDir.path}/pda');
-      final extractDir = filesDir; // 直接解压到Download目录
+      final extractDir = pdaDir; // 解压到 pda 目录
 
       LogUtil.i('$_logTag [Extract] 开始解压 ${zipFile.path} 到 ${extractDir.path}');
 
@@ -110,7 +110,7 @@ class AppDirectories {
       int extractedCount = 0;
       for (final file in archive) {
         final filename = file.name;
-        final filePath = '${extractDir.path}/$filename';
+          final filePath = '${extractDir.path}/$filename';
 
         if (file.isFile) {
           final data = file.content as List<int>;

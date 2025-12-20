@@ -296,8 +296,6 @@ class _ProgressDialog extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  LinearProgressIndicator(value: value),
-                  const SizedBox(height: 12),
                   Row(
                     children: [
                       const SizedBox(
@@ -309,6 +307,8 @@ class _ProgressDialog extends StatelessWidget {
                       Expanded(child: Text(message)),
                     ],
                   ),
+                  const SizedBox(height: 12),
+                  LinearProgressIndicator(value: value),
                 ],
               );
             },
