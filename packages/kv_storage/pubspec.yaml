@@ -1,0 +1,17 @@
+name: kv_storage
+description: 轻量 KV 存储封装，默认使用 Hive，可替换适配器实现。
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

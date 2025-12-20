@@ -1,0 +1,20 @@
+name: item_scanner
+
+packages:
+  - packages/*
+  - example
+
+sdkPath: .fvm/flutter_sdk
+
+scripts:
+  analyze:
+    run: melos exec -- "dart analyze ."
+    description: Run `dart analyze` in all packages.
+
+  test:
+    run: melos exec --dir-exists="test" -- "flutter test"
+    description: Run `flutter test` for selected packages.
+
+  version:
+    run: melos version
+    description: Generate changelogs and version packages.

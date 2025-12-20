@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+set -eu
+
+# 在 monorepo 任意子目录都可以运行：
+#   ./tool/melos <melos-args...>
+#
+# 目的：
+# - 强制使用 FVM 对应的 Dart/Flutter（避免全局 Dart 版本不一致）
+# - 避免 melos 子进程中 /bin/sh 找不到 fvm 的问题（melos.yaml 已改为直接用 flutter/dart）
+
+exec fvm dart run melos "$@"
+

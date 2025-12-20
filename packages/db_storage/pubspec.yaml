@@ -1,0 +1,20 @@
+name: db_storage
+description: 数据库访问封装，默认使用 SQLite，可通过适配器快速替换实现。
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  path: ^1.8.3
+  logging_util:
+    path: ../logging_util
+  sqflite: ^2.3.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  sqflite_common_ffi: ^2.3.0

@@ -1,0 +1,8 @@
+name: my_flutter_components_workspace
+description: A Monorepo for reusable Flutter components.
+publish_to: 'none'
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dev_dependencies:
+  melos: ^6.0.0

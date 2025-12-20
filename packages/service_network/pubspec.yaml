@@ -1,0 +1,18 @@
+name: service_network
+description: Network service based on Dio.
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.0.0
+  logging_util:
+    path: ../logging_util
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

@@ -1,0 +1,16 @@
+name: service_protobuf
+description: Protobuf 编解码与装包/拆包工具，独立于网络传输层。
+version: 0.0.1
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  protobuf: ^3.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter:
+    sdk: flutter
