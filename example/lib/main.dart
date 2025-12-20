@@ -213,6 +213,31 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _checkPdaZip() async {
     if (_checkingZip) return;
     LogUtil.i('[ZipCheck] 开始检查 pda.zip');
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        title: const Text('注意'),
+        content: const Text('导入将会清掉之前的文件，是否继续？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('确认'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) {
+      LogUtil.i('[ZipCheck] 用户取消导入');
+      return;
+    }
+
     setState(() {
       _checkingZip = true;
       _status = '正在检查/解压 pda.zip...';
