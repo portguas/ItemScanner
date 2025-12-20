@@ -384,61 +384,84 @@ class _MyHomePageState extends State<MyHomePage> {
       return const SizedBox.shrink();
     }
     final headers = rows.first.keys.toList();
+    final scrollController = ScrollController();
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: ExpansionTile(
+        initiallyExpanded: true,
+        title: Row(
           children: [
-            Text(
-              title,
-              style: titleStyle,
+            Expanded(
+              child: Text(
+                title,
+                style: titleStyle,
+              ),
             ),
-            const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
-                columnSpacing: 12,
-                headingRowHeight: 36,
-                dataRowHeight: 48,
-                columns: headers
-                    .map(
-                      (h) => DataColumn(
-                        label: Text(
-                          h,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                      ),
-                    )
-                    .toList(),
-                rows: rows
-                    .map(
-                      (row) => DataRow(
-                        cells: headers
-                            .map(
-                              (h) => DataCell(
-                                ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    minWidth: 80,
-                                    maxWidth: 200,
-                                  ),
-                                  child: Text(
-                                    '${row[h] ?? ''}',
-                                    style: cellStyle,
-                                  ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    )
-                    .toList(),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${rows.length} 条',
+                style: cellStyle.copyWith(fontWeight: FontWeight.w600),
               ),
             ),
           ],
         ),
+        children: [
+          SizedBox(
+            width: double.infinity,
+            child: Scrollbar(
+              thumbVisibility: true,
+              controller: scrollController,
+              child: SingleChildScrollView(
+                controller: scrollController,
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 12,
+                  headingRowHeight: 36,
+                  dataRowHeight: 48,
+                  columns: headers
+                      .map(
+                        (h) => DataColumn(
+                          label: Text(
+                            h,
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  rows: rows
+                      .map(
+                        (row) => DataRow(
+                          cells: headers
+                              .map(
+                                (h) => DataCell(
+                                  ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                      minWidth: 80,
+                                      maxWidth: 220,
+                                    ),
+                                    child: Text(
+                                      '${row[h] ?? ''}',
+                                      style: cellStyle,
+                                    ),
+                                  ),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
       ),
     );
   }
