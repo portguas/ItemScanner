@@ -1,14 +1,11 @@
 import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:logging_util/logging_util.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:service_network/service_network.dart';
 import 'package:ui_design_system/ui_design_system.dart';
-import 'utils/app_directories.dart';
 import 'utils/permission_service.dart';
+import 'services/scan_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,10 +50,10 @@ class _MyHomePageState extends State<MyHomePage> {
   final MethodChannel _methodChannel =
       const MethodChannel('com.example.pda/native_to_flutter');
 
-
   String _status = 'Ready';
   bool _checkingZip = false;
   bool _permissionsRequested = false;
+  final ScanService _scanService = const ScanService();
 
   @override
   void initState() {
@@ -81,7 +78,7 @@ class _MyHomePageState extends State<MyHomePage> {
           final result = ScanResult.fromMap(resultMap);
 
           if (result.barcode != null) {
-            // await _processScanResultLegacy(context, result.barcode!);
+            await _handleBarcode(result.barcode!);
           }
         } catch (e, stackTrace) {
           LogUtil.d('处理扫描结果时发生异常: $e');
@@ -93,7 +90,7 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
- /// 应用启动时请求权限
+  /// 应用启动时请求权限
   Future<void> _requestPermissionsOnStart() async {
     if (_permissionsRequested) return;
 
@@ -129,7 +126,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void _makeRequest() async {
-   
+    await _mockScan();
   }
 
   @override
@@ -137,6 +134,7 @@ class _MyHomePageState extends State<MyHomePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
+        centerTitle: true,
         actions: [
           IconButton(
             onPressed: _checkingZip ? null : _checkPdaZip,
@@ -156,7 +154,7 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             const SizedBox(height: 20),
             CustomButton(
-              label: 'Make Network Request',
+              label: '模拟扫描',
               onPressed: _makeRequest,
             ),
           ],
@@ -170,104 +168,152 @@ class _MyHomePageState extends State<MyHomePage> {
     LogUtil.i('[ZipCheck] 开始检查 pda.zip');
     setState(() {
       _checkingZip = true;
-      _status = '正在检查 pda.zip...';
+      _status = '正在检查/解压 pda.zip...';
     });
 
     BuildContext? dialogContext;
+    final progress = ValueNotifier<double?>(null);
+    final progressText = ValueNotifier<String>('正在检查 pda.zip...');
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
         dialogContext = ctx;
-        return const _ProgressDialog(message: '正在检查 pda.zip...');
+        return _ProgressDialog(
+          messageListenable: progressText,
+          progressListenable: progress,
+        );
       },
     );
 
-    String result = '';
+    OperationResult? opResult;
     try {
-      final zipPath = await AppDirectories.getPdaZipPath().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () =>
-            throw TimeoutException('获取 pda.zip 路径超时 (10s)'),
-      );
-      final exists = await AppDirectories.pdaZipExists().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () =>
-            throw TimeoutException('检测 pda.zip 是否存在超时 (10s)'),
-      );
-      result =
-          exists ? 'pda.zip 已存在：$zipPath' : '未找到 pda.zip，预期路径：$zipPath';
-      LogUtil.i('[ZipCheck] exists=$exists path=$zipPath');
-      if (mounted) {
-        setState(() {
-          _status = exists ? 'pda.zip 已存在' : 'pda.zip 未找到';
-        });
+      final checkResult = await _scanService
+          .checkZipExists()
+          .timeout(const Duration(seconds: 10));
+      opResult = checkResult.$2;
+      _applyResult(opResult, showSnack: false);
+      if (!checkResult.$1) {
+        _applyResult(opResult);
+        return;
       }
+
+      progress.value = 0;
+      progressText.value = '正在解压 pda.zip...';
+
+      opResult = await _scanService.extractZip(
+        onProgress: (value, fileName) {
+          progress.value = value;
+          progressText.value = '解压中: $fileName';
+        },
+      );
+      _applyResult(opResult);
     } on TimeoutException catch (e) {
-      result = '检查超时：${e.message ?? ''}';
-      LogUtil.e('[ZipCheck] 超时: $result');
-      if (mounted) {
-        setState(() {
-          _status = result;
-        });
-      }
+      final msg = '检查超时：${e.message ?? ''}';
+      opResult = OperationResult(status: msg, snack: msg);
+      LogUtil.e('[ZipCheck] 检查超时: $msg');
+      _applyResult(opResult);
     } catch (e) {
-      result = '检查失败：$e';
+      final msg = '检查失败：$e';
+      opResult = OperationResult(status: msg, snack: msg);
       LogUtil.e('[ZipCheck] 失败: $e');
-      if (mounted) {
-        setState(() {
-          _status = result;
-        });
-      }
+      _applyResult(opResult);
     } finally {
       if (dialogContext != null && Navigator.of(dialogContext!).canPop()) {
         Navigator.of(dialogContext!).pop();
       }
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(result)),
-        );
         setState(() {
           _checkingZip = false;
         });
       }
-      LogUtil.i('[ZipCheck] 完成: $result');
+      LogUtil.i('[ZipCheck] 完成: ${opResult?.status ?? '未知结果'}');
     }
   }
-}
 
-class ScanResult {
-  final String? barcode;
-  final Map<String, dynamic> raw;
+  Future<void> _mockScan() async {
+    const mockBarcode = 'demo_file.txt';
+    LogUtil.i('[MockScan] 模拟扫码: $mockBarcode');
+    _applyResult(
+      const OperationResult(
+        status: '模拟扫码中: demo_file.txt',
+        snack: '模拟扫码',
+      ),
+      showSnack: false,
+    );
+    await _handleBarcode(mockBarcode);
+  }
 
-  ScanResult({
-    required this.raw,
-    this.barcode,
-  });
+  Future<void> _handleBarcode(String barcode) async {
+    try {
+      final result = await _scanService.handleBarcode(barcode);
+      _applyResult(result);
+    } catch (e, st) {
+      final msg = '处理条码失败：$e';
+      LogUtil.e('[Scan] 处理条码异常: $e\n$st');
+      _applyResult(OperationResult(status: msg, snack: msg));
+    }
+  }
 
-  factory ScanResult.fromMap(Map<String, dynamic> map) {
-    final code = map['barcode'] as String? ?? map['data'] as String?;
-    return ScanResult(
-      raw: map,
-      barcode: code,
+  void _applyResult(OperationResult result, {bool showSnack = true}) {
+    if (mounted) {
+      setState(() {
+        _status = result.status;
+      });
+      if (showSnack) {
+        _showSnack(result.snack);
+      }
+    }
+  }
+
+  void _showSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
     );
   }
 }
 
 class _ProgressDialog extends StatelessWidget {
-  const _ProgressDialog({required this.message});
+  const _ProgressDialog({
+    required this.messageListenable,
+    required this.progressListenable,
+  });
 
-  final String message;
+  final ValueListenable<String> messageListenable;
+  final ValueListenable<double?> progressListenable;
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      content: Row(
-        children: [
-          const CircularProgressIndicator(),
-          const SizedBox(width: 16),
-          Expanded(child: Text(message)),
-        ],
+      content: ValueListenableBuilder<double?>(
+        valueListenable: progressListenable,
+        builder: (context, value, _) {
+          return ValueListenableBuilder<String>(
+            valueListenable: messageListenable,
+            builder: (context, message, __) {
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LinearProgressIndicator(value: value),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(child: Text(message)),
+                    ],
+                  ),
+                ],
+              );
+            },
+          );
+        },
       ),
     );
   }

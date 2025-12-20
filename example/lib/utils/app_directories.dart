@@ -69,8 +69,11 @@ class AppDirectories {
   }
 
   /// 解压pda.zip文件到同名文件夹
+  /// [onProgress] 解压进度回调 (0-1, 当前文件名)
   /// 返回解压后的目录路径
-  static Future<String?> extractPdaZip() async {
+  static Future<String?> extractPdaZip({
+    void Function(double progress, String fileName)? onProgress,
+  }) async {
     try {
       final zipFile = await getPdaZipFile();
 
@@ -85,15 +88,23 @@ class AppDirectories {
 
       LogUtil.i('$_logTag [Extract] 开始解压 ${zipFile.path} 到 ${extractDir.path}');
 
-      // 如果pda目录已存在，先删除
+      // 确保 pda 目录存在，若存在则清空
       if (await pdaDir.exists()) {
-        await pdaDir.delete(recursive: true);
-        LogUtil.i('$_logTag [Extract] 删除已存在的 pda 目录: ${pdaDir.path}');
+        // 删除已有内容，保留目录
+        await _clearDirectory(pdaDir);
+        LogUtil.i('$_logTag [Extract] 清空已存在的 pda 目录: ${pdaDir.path}');
+      } else {
+        await pdaDir.create(recursive: true);
+        LogUtil.i('$_logTag [Extract] 创建 pda 目录: ${pdaDir.path}');
       }
 
       // 读取ZIP文件
       final bytes = await zipFile.readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
+      final totalBytes = archive.files
+          .where((file) => file.isFile)
+          .fold<int>(0, (sum, file) => sum + (file.size ?? 0));
+      var processed = 0;
 
       // 解压文件
       int extractedCount = 0;
@@ -112,7 +123,13 @@ class AppDirectories {
           await outFile.writeAsBytes(data);
           extractedCount++;
 
-          LogUtil.d('$_logTag [Extract] 解压文件: $filename (${data.length} bytes)');
+          processed += file.size ?? data.length;
+          if (onProgress != null && totalBytes > 0) {
+            onProgress(
+              (processed / totalBytes).clamp(0, 1),
+              filename,
+            );
+          }
         } else {
           // 创建目录
           final dir = Directory(filePath);
@@ -123,11 +140,27 @@ class AppDirectories {
       }
 
       LogUtil.i('$_logTag [Extract] 解压完成，共解压 $extractedCount 个文件');
+      onProgress?.call(1, '完成');
 
       return pdaDir.path;
     } catch (e) {
       LogUtil.e('$_logTag [Extract] 解压失败: $e');
       return null;
+    }
+  }
+
+  /// 清空目录下的所有文件和子目录，但保留目录本身
+  static Future<void> _clearDirectory(Directory dir) async {
+    await for (final entity in dir.list(recursive: false)) {
+      try {
+        if (entity is File) {
+          await entity.delete();
+        } else if (entity is Directory) {
+          await entity.delete(recursive: true);
+        }
+      } catch (e) {
+        LogUtil.w('$_logTag [Extract] 删除文件失败: $e');
+      }
     }
   }
 
