@@ -3,11 +3,12 @@ import 'package:flutter/foundation.dart';
 import '../services/scan_service.dart';
 
 class HomeState extends ChangeNotifier {
-  String status = 'Ready';
+  String status = '准备';
   String? currentTitle;
   Map<String, String> scalarData = {};
   Map<String, List<Map<String, dynamic>>> tableData = {};
   bool checkingZip = false;
+  bool loading = false;
 
   void setStatus(String value) {
     status = value;
@@ -16,6 +17,11 @@ class HomeState extends ChangeNotifier {
 
   void setChecking(bool value) {
     checkingZip = value;
+    notifyListeners();
+  }
+
+  void setLoading(bool value) {
+    loading = value;
     notifyListeners();
   }
 

@@ -12,6 +12,7 @@ import 'services/scan_service.dart';
 import 'utils/app_directories.dart';
 import 'utils/permission_service.dart';
 import 'state/home_state.dart';
+import 'services/scanner_initialization_service.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,6 +26,10 @@ void main() {
       debugPrint('Write log to file: $line');
     },
   );
+
+  // 启动应用后自动初始化扫描器（后台执行，不阻塞主线程）
+  // ScannerInitializationService.instance.initializeOnAppStart();
+
   runApp(const MyApp());
 }
 
@@ -87,7 +92,8 @@ class _MyHomePageState extends State<MyHomePage> {
               Map<String, dynamic>.from(call.arguments);
 
           final barcode =
-              (resultMap['barcode'] ?? resultMap['data'])?.toString().trim() ?? '';
+              (resultMap['barcode'] ?? resultMap['data'])?.toString().trim() ??
+                  '';
 
           if (barcode.isNotEmpty) {
             await _handleBarcode(barcode);
@@ -158,12 +164,20 @@ class _MyHomePageState extends State<MyHomePage> {
 
     return Scaffold(
       appBar: AppBar(
+        leading: kDebugMode
+            ? IconButton(
+                onPressed:
+                    state.checkingZip || state.loading ? null : _makeRequest,
+                icon: const Icon(Icons.qr_code_2_outlined),
+                tooltip: '模拟扫描',
+              )
+            : null,
         title: Text(widget.title),
         centerTitle: true,
         actions: [
           IconButton(
-            onPressed: state.checkingZip ? null : _checkPdaZip,
-            icon: Icon(Icons.drive_folder_upload_outlined),
+            onPressed: state.checkingZip || state.loading ? null : _checkPdaZip,
+            icon: const Icon(Icons.drive_folder_upload_outlined),
             tooltip: '检查 pda.zip',
           ),
         ],
@@ -174,19 +188,27 @@ class _MyHomePageState extends State<MyHomePage> {
           mainAxisAlignment: MainAxisAlignment.start,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            if (kDebugMode) ...[
-              Text(
-                state.status,
-                style: AppTextStyles.headline,
-                textAlign: TextAlign.left,
-              ),
-              const SizedBox(height: 12),
-              CustomButton(
-                label: '模拟扫描',
-                onPressed: _makeRequest,
-              ),
-              const SizedBox(height: 12),
-            ],
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                if (state.loading) ...[
+                  const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  const SizedBox(width: 12),
+                ],
+                Expanded(
+                  child: Text(
+                    state.status,
+                    style: bodyStyle.copyWith(fontWeight: FontWeight.w600),
+                    textAlign: TextAlign.left,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             if (state.currentTitle != null && hasData) ...[
               Text(
                 state.currentTitle!,
@@ -335,6 +357,18 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Future<void> _handleBarcode(String barcode) async {
+    if (!mounted) return;
+    final homeState = context.read<HomeState>();
+
+    if (homeState.loading) {
+      LogUtil.w('[Scan] 上一次条码仍在处理中，忽略: $barcode');
+      return;
+    }
+
+    homeState
+      ..setLoading(true)
+      ..setStatus('正在处理：$barcode');
+
     try {
       final doc = await _scanService.loadDocument(barcode);
       if (doc == null) {
@@ -355,6 +389,10 @@ class _MyHomePageState extends State<MyHomePage> {
       final msg = '处理条码失败：$e';
       LogUtil.e('[Scan] 处理条码异常: $e\n$st');
       _applyResult(OperationResult(status: msg, snack: msg));
+    } finally {
+      if (mounted) {
+        homeState.setLoading(false);
+      }
     }
   }
 

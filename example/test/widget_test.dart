@@ -7,19 +7,14 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:example/main.dart';
+import 'package:item_scanner/main.dart';
 
 void main() {
-  testWidgets('展示初始状态并发起网络请求', (WidgetTester tester) async {
+  testWidgets('初始页面显示准备状态与提示文案', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
+    await tester.pumpAndSettle();
 
-    expect(find.text('Ready'), findsOneWidget);
-    expect(find.textContaining('Success'), findsNothing);
-
-    await tester.tap(find.text('Make Network Request'));
-    await tester.pump(); // 先响应 setState: Loading...
-    await tester.pumpAndSettle(); // 等待模拟的网络返回
-
-    expect(find.textContaining('Success: 示例待办'), findsOneWidget);
+    expect(find.text('准备'), findsOneWidget);
+    expect(find.text('暂无数据，请扫描'), findsOneWidget);
   });
 }

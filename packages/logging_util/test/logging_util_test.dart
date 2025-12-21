@@ -1,22 +1,25 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:logging_util/logging_util.dart';
 
 void main() {
   test('LogUtil errorReporter 被触发', () async {
-    var reported = false;
+    final completer = Completer<void>();
     StackTrace? captured;
 
     LogUtil.init(
       errorReporter: (message, error, stackTrace) async {
-        reported = true;
         captured = stackTrace;
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
       },
     );
 
     LogUtil.e('boom', StackTrace.current);
-    await Future<void>.delayed(const Duration(milliseconds: 10));
+    await completer.future.timeout(const Duration(seconds: 1));
 
-    expect(reported, isTrue);
     expect(captured, isNotNull);
   });
 }
