@@ -106,6 +106,7 @@ class AppDirectories {
       // 读取ZIP文件
       final bytes = await zipFile.readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
+      final hasRootPda = _hasRootPdaDirectory(archive);
       final totalBytes = archive.files
           .where((file) => file.isFile)
           .fold<int>(0, (sum, file) => sum + (file.size ?? 0));
@@ -114,8 +115,13 @@ class AppDirectories {
       // 解压文件
       int extractedCount = 0;
       for (final file in archive) {
-        final filename = file.name;
-          final filePath = '${extractDir.path}/$filename';
+        final filename =
+            _normalizeEntryName(file.name, stripRootPda: hasRootPda);
+        if (filename.isEmpty) {
+          LogUtil.d('$_logTag [Extract] 跳过根目录占位: ${file.name}');
+          continue;
+        }
+        final filePath = '${extractDir.path}/$filename';
 
         if (file.isFile) {
           final data = file.content as List<int>;
@@ -187,6 +193,42 @@ class AppDirectories {
     }
 
     onProgress?.call(1, '删除完成');
+  }
+
+  /// 规范化压缩包内条目，必要时剥去根目录 pda，避免解压后 pda/pda 嵌套
+  static String _normalizeEntryName(
+    String name, {
+    required bool stripRootPda,
+  }) {
+    var normalized = _normalizePath(name);
+
+    if (stripRootPda &&
+        (normalized == 'pda' || normalized.startsWith('pda/'))) {
+      normalized = normalized == 'pda' ? '' : normalized.substring(4);
+    }
+
+    return normalized;
+  }
+
+  /// 判断压缩包根目录下是否包含 pda 目录
+  static bool _hasRootPdaDirectory(Archive archive) {
+    for (final file in archive.files) {
+      final normalized = _normalizePath(file.name);
+      if (normalized == 'pda' || normalized.startsWith('pda/')) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// 统一路径分隔符并移除多余前缀
+  static String _normalizePath(String name) {
+    var normalized = name.replaceAll('\\', '/');
+    while (normalized.startsWith('./')) {
+      normalized = normalized.substring(2);
+    }
+    normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
+    return normalized;
   }
 
   /// 获取解压后的pda目录
