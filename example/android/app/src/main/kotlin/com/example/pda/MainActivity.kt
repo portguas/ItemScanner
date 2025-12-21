@@ -1,4 +1,4 @@
-package com.example.example
+package com.example.pda
 
 import android.util.Log
 import io.flutter.embedding.android.FlutterActivity
@@ -36,4 +36,3 @@ class MainActivity: FlutterActivity() {
     }
     
 }
-

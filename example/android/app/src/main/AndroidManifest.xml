@@ -24,7 +24,7 @@
         tools:ignore="ScopedStorage" />
         
     <application
-        android:label="example"
+        android:label="pda"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

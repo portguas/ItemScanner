@@ -28,7 +28,7 @@ void main() {
   );
 
   // 启动应用后自动初始化扫描器（后台执行，不阻塞主线程）
-  // ScannerInitializationService.instance.initializeOnAppStart();
+  ScannerInitializationService.instance.initializeOnAppStart();
 
   runApp(const MyApp());
 }
