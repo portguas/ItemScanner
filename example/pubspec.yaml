@@ -12,9 +12,10 @@ dependencies:
   cupertino_icons: ^1.0.2
   path: ^1.9.0
   path_provider: ^2.1.5
-  archive: ^3.4.10
   provider: ^6.1.2
   
+  flutter_archive: ^5.0.0
+
   # 权限管理
   permission_handler: ^11.3.1
   # Internal packages

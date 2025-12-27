@@ -315,11 +315,14 @@ class _MyHomePageState extends State<MyHomePage> {
         return;
       }
 
-      progress.value = 0;
-      progressText.value = '正在解压 pda.zip...';
-
       opResult = await _scanService.extractZip(
-        onProgress: (value, fileName) {
+        onDeleteProgress: (value, fileName) {
+          // 删除阶段仅提示，不展示进度条，避免与解压进度混淆
+          progress.value = null;
+          progressText.value = '清理旧目录: $fileName';
+        },
+        onExtractProgress: (value, fileName) {
+          // 解压阶段单独计算
           progress.value = value;
           progressText.value = '解压中: $fileName';
         },

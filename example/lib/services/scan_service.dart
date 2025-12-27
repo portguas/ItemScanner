@@ -129,10 +129,12 @@ class ScanService {
 
   /// 解压 pda.zip（不设超时，失败时返回错误）
   Future<OperationResult> extractZip({
-    void Function(double progress, String fileName)? onProgress,
+    void Function(double progress, String fileName)? onDeleteProgress,
+    void Function(double progress, String fileName)? onExtractProgress,
   }) async {
     final extractPath = await AppDirectories.extractPdaZip(
-      onProgress: onProgress,
+      onDeleteProgress: onDeleteProgress,
+      onExtractProgress: onExtractProgress,
     );
     if (extractPath == null) {
       return const OperationResult(

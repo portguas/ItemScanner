@@ -13,6 +13,38 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// 为缺少 namespace 的三方库补充命名空间（如 flutter_archive）
+subprojects { subproject ->
+    subproject.plugins.withId("com.android.library") {
+        def androidExt = subproject.extensions.findByName("android")
+        if (androidExt != null && androidExt.hasProperty("namespace")) {
+            if (!androidExt.namespace) {
+                if (subproject.name == "flutter_archive") {
+                    androidExt.namespace = "com.kineapps.flutterarchive"
+                }
+            }
+        }
+    }
+
+    // 统一第三方库的 Java/Kotlin 目标版本
+    subproject.plugins.withId("kotlin-android") {
+        subproject.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions {
+                jvmTarget = "17"
+            }
+        }
+    }
+    subproject.plugins.withId("com.android.library") {
+        def androidExt = subproject.extensions.findByName("android")
+        if (androidExt != null) {
+            androidExt.compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }

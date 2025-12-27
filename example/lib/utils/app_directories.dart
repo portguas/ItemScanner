@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
-import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_archive/flutter_archive.dart';
 import 'package:logging_util/logging_util.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 /// 应用目录工具类
@@ -69,10 +72,12 @@ class AppDirectories {
   }
 
   /// 解压pda.zip文件到同名文件夹
-  /// [onProgress] 解压进度回调 (0-1, 当前文件名)
+  /// [onDeleteProgress] 删除进度回调 (0-1, 当前文件/目录)
+  /// [onExtractProgress] 解压进度回调 (0-1, 当前文件名)
   /// 返回解压后的目录路径
   static Future<String?> extractPdaZip({
-    void Function(double progress, String fileName)? onProgress,
+    void Function(double progress, String fileName)? onDeleteProgress,
+    void Function(double progress, String fileName)? onExtractProgress,
   }) async {
     try {
       final zipFile = await getPdaZipFile();
@@ -84,81 +89,117 @@ class AppDirectories {
 
       final filesDir = await getFilesDirectory();
       final pdaDir = Directory('${filesDir.path}/pda');
-      final extractDir = pdaDir; // 解压到 pda 目录
-
-      LogUtil.i('$_logTag [Extract] 开始解压 ${zipFile.path} 到 ${extractDir.path}');
+      LogUtil.i('$_logTag [Extract] 开始解压 ${zipFile.path} 到 ${pdaDir.path}');
 
       // 确保 pda 目录存在，若存在则清空
       if (await pdaDir.exists()) {
-        // 删除已有内容，保留目录
-        await _clearDirectory(
+        await _deleteDirectoryFast(
           pdaDir,
           onProgress: (progress, action) {
-            onProgress?.call(progress * 0.2, action); // 前 20% 用于删除
+            onDeleteProgress?.call(progress, action);
           },
         );
-        LogUtil.i('$_logTag [Extract] 清空已存在的 pda 目录: ${pdaDir.path}');
-      } else {
-        await pdaDir.create(recursive: true);
-        LogUtil.i('$_logTag [Extract] 创建 pda 目录: ${pdaDir.path}');
       }
+      await pdaDir.create(recursive: true);
+      LogUtil.i('$_logTag [Extract] 创建/清空 pda 目录: ${pdaDir.path}');
 
-      // 读取ZIP文件
-      final bytes = await zipFile.readAsBytes();
-      final archive = ZipDecoder().decodeBytes(bytes);
-      final hasRootPda = _hasRootPdaDirectory(archive);
-      final totalBytes = archive.files
-          .where((file) => file.isFile)
-          .fold<int>(0, (sum, file) => sum + (file.size ?? 0));
-      var processed = 0;
+      try {
+        onExtractProgress?.call(0, '开始解压');
+        final watch = Stopwatch()..start();
 
-      // 解压文件
-      int extractedCount = 0;
-      for (final file in archive) {
-        final filename =
-            _normalizeEntryName(file.name, stripRootPda: hasRootPda);
-        if (filename.isEmpty) {
-          LogUtil.d('$_logTag [Extract] 跳过根目录占位: ${file.name}');
-          continue;
-        }
-        final filePath = '${extractDir.path}/$filename';
+        await ZipFile.extractToDirectory(
+          zipFile: zipFile,
+          destinationDir: pdaDir,
+          onExtracting: (zipEntry, progress) {
+            if (onExtractProgress != null) {
+              final name = zipEntry.name.isEmpty ? '...' : zipEntry.name;
+              final normalized = (progress / 100).clamp(0.0, 1.0);
+              onExtractProgress(normalized, name);
+            }
+            return ZipFileOperation.includeItem;
+          },
+        );
 
-        if (file.isFile) {
-          final data = file.content as List<int>;
-          final outFile = File(filePath);
+        watch.stop();
+        LogUtil.i(
+          '$_logTag [Extract] flutter_archive 解压完成，耗时 ${watch.elapsedMilliseconds}ms',
+        );
 
-          // 确保父目录存在
-          await outFile.parent.create(recursive: true);
+        await _flattenNestedPda(pdaDir);
+        onExtractProgress?.call(1, '完成');
 
-          // 写入文件
-          await outFile.writeAsBytes(data);
-          extractedCount++;
-
-          processed += file.size ?? data.length;
-          if (onProgress != null && totalBytes > 0) {
-            // 删除阶段占 20%，解压占 80%
-            final progress = 0.2 + (processed / totalBytes).clamp(0, 1) * 0.8;
-            onProgress(
-              progress.clamp(0, 1),
-              filename,
-            );
-          }
-        } else {
-          // 创建目录
-          final dir = Directory(filePath);
-          await dir.create(recursive: true);
-
-          LogUtil.d('$_logTag [Extract] 创建目录: $filename');
-        }
+        return pdaDir.path;
+      } finally {
+        // 无需手动关闭，flutter_archive 内部处理
       }
-
-      LogUtil.i('$_logTag [Extract] 解压完成，共解压 $extractedCount 个文件');
-      onProgress?.call(1, '完成');
-
-      return pdaDir.path;
     } catch (e) {
       LogUtil.e('$_logTag [Extract] 解压失败: $e');
       return null;
+    }
+  }
+
+  /// 优先用递归删除整个目录，失败时回退到逐个删除（适合大量小文件场景）
+  static Future<void> _deleteDirectoryFast(
+    Directory dir, {
+    void Function(double progress, String action)? onProgress,
+  }) async {
+    try {
+      if (!await dir.exists()) {
+        onProgress?.call(1, '无需删除');
+        return;
+      }
+
+      onProgress?.call(0, '重命名待删目录');
+      LogUtil.d('开始重命名待删目录: ${dir.path}');
+      final tempPath =
+          '${dir.path}_to_be_deleted_${DateTime.now().microsecondsSinceEpoch}';
+      final tempDir = Directory(tempPath);
+
+      final renameWatch = Stopwatch()..start();
+      await dir.rename(tempPath); // O(1) 重命名，避免长时间阻塞
+      renameWatch.stop();
+      LogUtil.d(
+        '$_logTag [Extract] 重命名耗时 ${renameWatch.elapsedMilliseconds}ms -> ${tempDir.path}',
+      );
+      onProgress?.call(1, '后台删除中');
+
+      // 后台使用隔离线程删除，避免阻塞主 Isolate
+      unawaited(Isolate.run(() async {
+        try {
+          await tempDir.delete(recursive: true);
+          LogUtil.d('$_logTag [Extract] 后台清理完成: ${tempDir.path}');
+        } catch (e) {
+          LogUtil.w('$_logTag [Extract] 后台清理失败: $e');
+        }
+      }));
+    } catch (e) {
+      LogUtil.w('$_logTag [Extract] 快速删除失败，回退直接删除: $e');
+      onProgress?.call(0, '直接删除');
+      await dir.delete(recursive: true);
+      onProgress?.call(1, '删除完成');
+    }
+  }
+
+  /// 处理解压后出现的 pda/pda 嵌套目录
+  static Future<void> _flattenNestedPda(Directory pdaDir) async {
+    final nested = Directory(p.join(pdaDir.path, 'pda'));
+    if (!await nested.exists()) return;
+
+    final entries = await nested.list().toList();
+    for (final entity in entries) {
+      final targetPath = p.join(pdaDir.path, p.basename(entity.path));
+      try {
+        await entity.rename(targetPath);
+      } catch (e) {
+        LogUtil.w('$_logTag [Extract] 移动文件失败 $targetPath: $e');
+      }
+    }
+
+    try {
+      await nested.delete(recursive: true);
+      LogUtil.i('$_logTag [Extract] 处理嵌套目录完成');
+    } catch (e) {
+      LogUtil.w('$_logTag [Extract] 删除嵌套目录失败: $e');
     }
   }
 
@@ -167,6 +208,11 @@ class AppDirectories {
     Directory dir, {
     void Function(double progress, String action)? onProgress,
   }) async {
+    if (!await dir.exists()) {
+      onProgress?.call(1, '删除完成');
+      return;
+    }
+
     final entities = await dir.list(recursive: false).toList();
     final total = entities.length;
     var processed = 0;
@@ -193,42 +239,6 @@ class AppDirectories {
     }
 
     onProgress?.call(1, '删除完成');
-  }
-
-  /// 规范化压缩包内条目，必要时剥去根目录 pda，避免解压后 pda/pda 嵌套
-  static String _normalizeEntryName(
-    String name, {
-    required bool stripRootPda,
-  }) {
-    var normalized = _normalizePath(name);
-
-    if (stripRootPda &&
-        (normalized == 'pda' || normalized.startsWith('pda/'))) {
-      normalized = normalized == 'pda' ? '' : normalized.substring(4);
-    }
-
-    return normalized;
-  }
-
-  /// 判断压缩包根目录下是否包含 pda 目录
-  static bool _hasRootPdaDirectory(Archive archive) {
-    for (final file in archive.files) {
-      final normalized = _normalizePath(file.name);
-      if (normalized == 'pda' || normalized.startsWith('pda/')) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  /// 统一路径分隔符并移除多余前缀
-  static String _normalizePath(String name) {
-    var normalized = name.replaceAll('\\', '/');
-    while (normalized.startsWith('./')) {
-      normalized = normalized.substring(2);
-    }
-    normalized = normalized.replaceFirst(RegExp(r'^/+'), '');
-    return normalized;
   }
 
   /// 获取解压后的pda目录
