@@ -24,9 +24,9 @@
         tools:ignore="ScopedStorage" />
         
     <application
-        android:label="pda"
+        android:label="scm"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/scm">
         <activity
             android:name=".MainActivity"
             android:exported="true"
