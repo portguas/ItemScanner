@@ -36,17 +36,24 @@ class ScanService {
   const ScanService();
 
   /// 在 pda 目录查找与条码同名的文件（不含扩展名），解析 JSON 返回业务数据
-  Future<DocumentData?> loadDocument(String barcode) async {
+  Future<({DocumentData? document, OperationResult? error})> loadDocument(
+    String barcode,
+  ) async {
     final trimmed = barcode.trim();
     if (trimmed.isEmpty) {
       LogUtil.w('[Scan] 收到空条码，忽略');
-      return null;
+      const result = OperationResult(status: '条码为空', snack: '条码为空，请重新扫描');
+      return (document: null, error: result);
     }
 
     final extractDir = await AppDirectories.getPdaExtractDirectory();
     if (!await extractDir.exists()) {
       LogUtil.w('[Scan] 解压目录不存在: ${extractDir.path}');
-      return null;
+      const result = OperationResult(
+        status: '文件目录不存在',
+        snack: '文件目录不存在，请先导入文件',
+      );
+      return (document: null, error: result);
     }
 
     File? target;
@@ -60,7 +67,11 @@ class ScanService {
 
     if (target == null) {
       LogUtil.w('[Scan] 文件未找到: $trimmed');
-      return null;
+      final result = OperationResult(
+        status: '文件未找到',
+        snack: '未找到对应文件：$trimmed',
+      );
+      return (document: null, error: result);
     }
 
     try {
@@ -68,7 +79,11 @@ class ScanService {
       final decoded = jsonDecode(content);
       if (decoded is! Map) {
         LogUtil.w('[Scan] 文件格式非 Map，无法解析: ${target.path}');
-        return null;
+        const result = OperationResult(
+          status: '文件格式错误',
+          snack: '文件格式错误，无法解析',
+        );
+        return (document: null, error: result);
       }
       final map = Map<String, dynamic>.from(decoded as Map);
       final title = map['title'] as String? ?? trimmed;
@@ -90,15 +105,20 @@ class ScanService {
       });
 
       LogUtil.i('[Scan] 解析文件成功: ${target.path}');
-      return DocumentData(
+      final document = DocumentData(
         title: title,
         scalar: scalar,
         tables: tables,
         path: target.path,
       );
+      return (document: document, error: null);
     } catch (e) {
       LogUtil.e('[Scan] 解析文件失败: $e');
-      return null;
+      final result = OperationResult(
+        status: '解析失败',
+        snack: '解析失败：$trimmed',
+      );
+      return (document: null, error: result);
     }
   }
 
@@ -147,9 +167,9 @@ class ScanService {
     }
 
     LogUtil.i('[Zip] 解压完成: $extractPath');
-    return OperationResult(
+    return const OperationResult(
       status: '解压完成',
-      snack: 'scm.zip 解压完成',
+      snack: '文件解压完成',
     );
   }
 

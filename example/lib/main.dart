@@ -258,7 +258,8 @@ class _MyHomePageState extends State<MyHomePage> {
           ],
         ),
       );
-      _applyResult(const OperationResult(status: msg, snack: msg), showSnack: false);
+      _applyResult(const OperationResult(status: msg, snack: msg),
+          showSnack: false);
       return;
     }
 
@@ -367,12 +368,19 @@ class _MyHomePageState extends State<MyHomePage> {
       ..setStatus('正在处理：$barcode');
 
     try {
-      final doc = await _scanService.loadDocument(barcode);
+      final result = await _scanService.loadDocument(barcode);
+      if (result.error != null) {
+        _applyResult(result.error!);
+        return;
+      }
+
+      final doc = result.document;
       if (doc == null) {
         final msg = '文件未找到或解析失败：$barcode';
         _applyResult(OperationResult(status: msg, snack: msg));
         return;
       }
+
       _showDocument(doc);
       _applyResult(
         OperationResult(
@@ -381,7 +389,6 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
         showSnack: false,
       );
-      _showSnack('找到文件：$barcode');
     } catch (e, st) {
       final msg = '处理条码失败：$e';
       LogUtil.e('[Scan] 处理条码异常: $e\n$st');
