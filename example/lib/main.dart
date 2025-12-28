@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -178,7 +179,7 @@ class _MyHomePageState extends State<MyHomePage> {
           IconButton(
             onPressed: state.checkingZip || state.loading ? null : _checkPdaZip,
             icon: const Icon(Icons.drive_folder_upload_outlined),
-            tooltip: '检查 pda.zip',
+            tooltip: '选择并导入 scm.zip',
           ),
         ],
       ),
@@ -256,14 +257,60 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _checkPdaZip() async {
     final homeState = context.read<HomeState>();
     if (homeState.checkingZip) return;
-    LogUtil.i('[ZipCheck] 开始检查 pda.zip');
+    LogUtil.i('[ZipPick] 开始选择 zip');
+
+    FilePickerResult? pickerResult;
+    try {
+      pickerResult = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: const ['zip'],
+        allowMultiple: false,
+        withData: true,
+        dialogTitle: '选择 scm.zip',
+      );
+    } catch (e, st) {
+      final msg = '选择文件失败：$e';
+      LogUtil.e('[ZipPick] 失败: $e\n$st');
+      _applyResult(OperationResult(status: msg, snack: msg));
+      return;
+    }
+
+    if (pickerResult == null || pickerResult.files.isEmpty) {
+      LogUtil.i('[ZipPick] 用户取消选择');
+      return;
+    }
+
+    final pickedFile = pickerResult.files.single;
+    final isZip = (pickedFile.extension ?? '').toLowerCase() == 'zip';
+    final isScmZip = pickedFile.name.toLowerCase() == 'scm.zip';
+    if (!isZip || !isScmZip) {
+      const msg = '请选择名为 scm.zip 的压缩包';
+      if (!mounted) return;
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('提示'),
+          content: const Text(msg),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('我知道了'),
+            ),
+          ],
+        ),
+      );
+      _applyResult(const OperationResult(status: msg, snack: msg), showSnack: false);
+      return;
+    }
+
+    if (!mounted) return;
 
     final confirm = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
       builder: (ctx) => AlertDialog(
         title: const Text('注意'),
-        content: const Text('导入将会清掉之前的文件，是否继续？'),
+        content: Text('将导入并解压 "${pickedFile.name}"，之前的文件将被清空，是否继续？'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -278,19 +325,21 @@ class _MyHomePageState extends State<MyHomePage> {
     );
 
     if (confirm != true) {
-      LogUtil.i('[ZipCheck] 用户取消导入');
+      LogUtil.i('[ZipPick] 用户取消导入');
       return;
     }
+
+    if (!mounted) return;
 
     // 清空当前显示
     homeState.clearDisplay();
     homeState
       ..setChecking(true)
-      ..setStatus('正在检查/解压 pda.zip...');
+      ..setStatus('正在导入：${pickedFile.name}');
 
     BuildContext? dialogContext;
     final progress = ValueNotifier<double?>(null);
-    final progressText = ValueNotifier<String>('正在检查 pda.zip...');
+    final progressText = ValueNotifier<String>('正在准备：${pickedFile.name}');
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -305,17 +354,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
     OperationResult? opResult;
     try {
-      final checkResult = await _scanService
-          .checkZipExists()
-          .timeout(const Duration(seconds: 10));
-      opResult = checkResult.$2;
-      _applyResult(opResult, showSnack: false);
-      if (!checkResult.$1) {
-        _applyResult(opResult);
-        return;
-      }
-
-      opResult = await _scanService.extractZip(
+      opResult = await _scanService.importZipFile(
+        pickedFile,
         onDeleteProgress: (value, fileName) {
           // 删除阶段仅提示，不展示进度条，避免与解压进度混淆
           progress.value = null;
@@ -328,22 +368,17 @@ class _MyHomePageState extends State<MyHomePage> {
         },
       );
       _applyResult(opResult);
-    } on TimeoutException catch (e) {
-      final msg = '检查超时：${e.message ?? ''}';
+    } catch (e, st) {
+      final msg = '导入失败：$e';
       opResult = OperationResult(status: msg, snack: msg);
-      LogUtil.e('[ZipCheck] 检查超时: $msg');
-      _applyResult(opResult);
-    } catch (e) {
-      final msg = '检查失败：$e';
-      opResult = OperationResult(status: msg, snack: msg);
-      LogUtil.e('[ZipCheck] 失败: $e');
+      LogUtil.e('[ZipPick] 导入失败: $e\n$st');
       _applyResult(opResult);
     } finally {
       if (dialogContext != null && Navigator.of(dialogContext!).canPop()) {
         Navigator.of(dialogContext!).pop();
       }
       homeState.setChecking(false);
-      LogUtil.i('[ZipCheck] 完成: ${opResult?.status ?? '未知结果'}');
+      LogUtil.i('[ZipPick] 完成: ${opResult?.status ?? '未知结果'}');
     }
   }
 

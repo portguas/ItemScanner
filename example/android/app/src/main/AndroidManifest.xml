@@ -21,7 +21,8 @@
     <application
         android:label="scm"
         android:name="${applicationName}"
-        android:icon="@mipmap/scm">
+        android:icon="@mipmap/scm"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:logging_util/logging_util.dart';
 import 'package:path/path.dart' as p;
 
@@ -101,52 +102,81 @@ class ScanService {
     }
   }
 
-  /// 仅检查 pda.zip 是否存在
+  /// 仅检查 scm.zip 是否存在
   Future<(bool, OperationResult)> checkZipExists() async {
     final zipPath = await AppDirectories.getPdaZipPath();
     final exists = await AppDirectories.pdaZipExists();
 
     if (!exists) {
-      LogUtil.w('[Zip] 未找到 pda.zip, 期望: $zipPath');
+      LogUtil.w('[Zip] 未找到 scm.zip, 期望: $zipPath');
       return (
         false,
         OperationResult(
-          status: 'pda.zip 未找到',
-          snack: '未找到 pda.zip，路径：$zipPath',
+          status: 'scm.zip 未找到',
+          snack: '未找到 scm.zip，路径：$zipPath',
         )
       );
     }
 
-    LogUtil.i('[Zip] 找到 pda.zip: $zipPath');
+    LogUtil.i('[Zip] 找到 scm.zip: $zipPath');
     return (
       true,
       OperationResult(
-        status: 'pda.zip 已存在',
-        snack: '找到 pda.zip：$zipPath',
+        status: 'scm.zip 已存在',
+        snack: '找到 scm.zip：$zipPath',
       )
     );
   }
 
-  /// 解压 pda.zip（不设超时，失败时返回错误）
+  /// 解压 scm.zip（不设超时，失败时返回错误）
   Future<OperationResult> extractZip({
     void Function(double progress, String fileName)? onDeleteProgress,
     void Function(double progress, String fileName)? onExtractProgress,
+    String? zipPath,
   }) async {
     final extractPath = await AppDirectories.extractPdaZip(
+      zipPath: zipPath,
       onDeleteProgress: onDeleteProgress,
       onExtractProgress: onExtractProgress,
     );
     if (extractPath == null) {
       return const OperationResult(
         status: '解压失败',
-        snack: 'pda.zip 解压失败',
+        snack: 'scm.zip 解压失败',
       );
     }
 
     LogUtil.i('[Zip] 解压完成: $extractPath');
     return OperationResult(
       status: '解压完成',
-      snack: 'pda.zip 解压完成：$extractPath',
+      snack: 'scm.zip 解压完成',
+    );
+  }
+
+  /// 导入用户选择的 zip 并解压
+  Future<OperationResult> importZipFile(
+    PlatformFile file, {
+    void Function(double progress, String fileName)? onDeleteProgress,
+    void Function(double progress, String fileName)? onExtractProgress,
+  }) async {
+    final savedZipPath = await AppDirectories.saveZipFile(
+      fileName: file.name,
+      sourcePath: file.path,
+      bytes: file.bytes,
+      readStream: file.readStream,
+    );
+
+    if (savedZipPath == null) {
+      final msg = '导入失败，无法读取 ${file.name}';
+      return OperationResult(status: msg, snack: msg);
+    }
+
+    LogUtil.i('[Zip] 已保存用户选择的 zip: $savedZipPath (源文件: ${file.name})');
+
+    return extractZip(
+      zipPath: savedZipPath,
+      onDeleteProgress: onDeleteProgress,
+      onExtractProgress: onExtractProgress,
     );
   }
 }
