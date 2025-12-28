@@ -139,7 +139,7 @@ class _MyHomePageState extends State<MyHomePage> {
           IconButton(
             onPressed: state.checkingZip || state.loading ? null : _checkPdaZip,
             icon: const Icon(Icons.drive_folder_upload_outlined),
-            tooltip: '选择并导入 scm.zip',
+            tooltip: '选择并导入 zip',
           ),
         ],
       ),
@@ -226,7 +226,7 @@ class _MyHomePageState extends State<MyHomePage> {
         allowedExtensions: const ['zip'],
         allowMultiple: false,
         withReadStream: true,
-        dialogTitle: '选择 scm.zip',
+        dialogTitle: '选择 zip 文件',
       );
     } catch (e, st) {
       final msg = '选择文件失败：$e';
@@ -242,9 +242,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
     final pickedFile = pickerResult.files.single;
     final isZip = (pickedFile.extension ?? '').toLowerCase() == 'zip';
-    final isScmZip = pickedFile.name.toLowerCase() == 'scm.zip';
-    if (!isZip || !isScmZip) {
-      const msg = '请选择名为 scm.zip 的压缩包';
+    if (!isZip) {
+      const msg = '请选择 zip 格式文件';
       if (!mounted) return;
       await showDialog<void>(
         context: context,

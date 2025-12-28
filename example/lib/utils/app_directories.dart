@@ -17,13 +17,7 @@ class AppDirectories {
 
   /// 根据 zip 路径设置解压目录名（与 zip 同名，不含扩展名）
   static void setExtractDirNameFromZip(String? zipPath) {
-    if (zipPath == null) {
-      _extractDirName = 'scm';
-      return;
-    }
-    final base = p.basenameWithoutExtension(zipPath);
-    _extractDirName = base.isEmpty ? 'scm' : base;
-    LogUtil.d('$_logTag 解压目录名: $_extractDirName');
+    _extractDirName = 'scm';
   }
 
   /// 获取应用私有目录（用于保存 zip 与解压文件）
@@ -146,8 +140,16 @@ class AppDirectories {
           onDeleteProgress?.call(progress, action);
         },
       );
-      await targetDir.create(recursive: true);
-      LogUtil.i('$_logTag [Extract] 创建/清空目标目录: ${targetDir.path}');
+      final stagingDir = Directory(
+        p.join(
+          filesDir.path,
+          '${_extractDirName}_staging_${DateTime.now().microsecondsSinceEpoch}',
+        ),
+      );
+      if (await stagingDir.exists()) {
+        await stagingDir.delete(recursive: true);
+      }
+      await stagingDir.create(recursive: true);
 
       try {
         onExtractProgress?.call(0, '开始解压');
@@ -155,7 +157,7 @@ class AppDirectories {
 
         await ZipFile.extractToDirectory(
           zipFile: zipFile,
-          destinationDir: targetDir,
+          destinationDir: stagingDir,
           onExtracting: (zipEntry, progress) {
             if (onExtractProgress != null) {
               final name = zipEntry.name.isEmpty ? '...' : zipEntry.name;
@@ -171,10 +173,33 @@ class AppDirectories {
           '$_logTag [Extract] flutter_archive 解压完成，耗时 ${watch.elapsedMilliseconds}ms',
         );
 
-        await _flattenNestedPda(targetDir);
-        onExtractProgress?.call(1, '完成');
+        // 目标：无论 zip 内部根目录叫什么，都解压到 scm/ 下（不出现 scm/pda/...）
+        // 若 staging 下只有一个子目录且没有文件，则把该子目录直接重命名为 scm，避免逐文件移动
+        final rootEntries = await stagingDir.list(recursive: false).toList();
+        final rootDirs = rootEntries.whereType<Directory>().toList();
+        final rootFiles = rootEntries.whereType<File>().toList();
 
+        if (rootFiles.isEmpty && rootDirs.length == 1) {
+          final rootDir = rootDirs.single;
+          await rootDir.rename(targetDir.path);
+          // 清理空的 staging 目录
+          try {
+            await stagingDir.delete(recursive: true);
+          } catch (_) {}
+        } else {
+          await stagingDir.rename(targetDir.path);
+        }
+
+        onExtractProgress?.call(1, '完成');
         return targetDir.path;
+      } catch (e) {
+        // 失败时尽量清理 staging，避免残留文件占用空间
+        try {
+          if (await stagingDir.exists()) {
+            await stagingDir.delete(recursive: true);
+          }
+        } catch (_) {}
+        rethrow;
       } finally {
         // 无需手动关闭，flutter_archive 内部处理
       }
@@ -240,29 +265,6 @@ class AppDirectories {
       onProgress?.call(0, '直接删除');
       await dir.delete(recursive: true);
       onProgress?.call(1, '删除完成');
-    }
-  }
-
-  /// 处理解压后出现的 scm/scm 嵌套目录
-  static Future<void> _flattenNestedPda(Directory pdaDir) async {
-    final nested = Directory(p.join(pdaDir.path, 'scm'));
-    if (!await nested.exists()) return;
-
-    final entries = await nested.list().toList();
-    for (final entity in entries) {
-      final targetPath = p.join(pdaDir.path, p.basename(entity.path));
-      try {
-        await entity.rename(targetPath);
-      } catch (e) {
-        LogUtil.w('$_logTag [Extract] 移动文件失败 $targetPath: $e');
-      }
-    }
-
-    try {
-      await nested.delete(recursive: true);
-      LogUtil.i('$_logTag [Extract] 处理嵌套目录完成');
-    } catch (e) {
-      LogUtil.w('$_logTag [Extract] 删除嵌套目录失败: $e');
     }
   }
 
