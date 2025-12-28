@@ -26,37 +26,22 @@ class AppDirectories {
     LogUtil.d('$_logTag 解压目录名: $_extractDirName');
   }
 
-  /// 获取内部存储的Download目录
-  /// 外部存储目录：/storage/emulated/0/Download
-  /// 用户可以通过文件管理器访问此目录
+  /// 获取应用私有目录（用于保存 zip 与解压文件）
+  /// 该目录不需要外部存储权限，但用户无法直接在文件 App 中访问
   static Future<Directory> getFilesDirectory() async {
     try {
-      // getExternalStorageDirectory() 返回外部存储目录
-      // 通常是 /storage/emulated/0/Android/data/包名/files
-      // 但我们使用Download目录，用户更容易访问
-      final externalDir = await getExternalStorageDirectory();
-      if (externalDir == null) {
-        LogUtil.w('$_logTag 外部存储不可用，回退到内部目录');
-        return await getApplicationSupportDirectory();
+      final supportDir = await getApplicationSupportDirectory();
+      if (!await supportDir.exists()) {
+        await supportDir.create(recursive: true);
       }
-
-      // 构建Download目录路径：/storage/emulated/0/Download
-      final downloadDir = Directory('/storage/emulated/0/Download');
-
-      // 确保目录存在
-      if (!await downloadDir.exists()) {
-        await downloadDir.create(recursive: true);
-        LogUtil.i('$_logTag 创建 Download 目录: ${downloadDir.path}');
-      }
-
-      LogUtil.d('$_logTag 使用 Download 目录: ${downloadDir.path}');
-      return downloadDir;
+      LogUtil.d('$_logTag 使用应用私有目录: ${supportDir.path}');
+      return supportDir;
     } on MissingPluginException catch (e) {
       // 未找到平台实现时回退
       LogUtil.e('$_logTag 插件未注册，回退内部目录: $e');
       return await getApplicationSupportDirectory();
     } on PlatformException catch (e) {
-      LogUtil.e('$_logTag 获取外部目录失败，回退内部目录: $e');
+      LogUtil.e('$_logTag 获取应用目录失败，回退内部目录: $e');
       return await getApplicationSupportDirectory();
     }
   }
@@ -83,7 +68,7 @@ class AppDirectories {
     return File(zipPath);
   }
 
-  /// 将选取的 zip 文件保存到 Download 目录（覆盖已有同名文件）
+  /// 将选取的 zip 文件保存到应用私有目录（覆盖已有同名文件）
   /// 优先使用源文件路径复制，其次使用内存数据或流写入
   static Future<String?> saveZipFile({
     required String fileName,
@@ -154,15 +139,13 @@ class AppDirectories {
       final targetDir = Directory(p.join(filesDir.path, _extractDirName));
       LogUtil.i('$_logTag [Extract] 开始解压 ${zipFile.path} 到 ${targetDir.path}');
 
-      // 若目标目录存在，快速重命名+后台删除
-      if (await targetDir.exists()) {
-        await _deleteDirectoryFast(
-          targetDir,
-          onProgress: (progress, action) {
-            onDeleteProgress?.call(progress, action);
-          },
-        );
-      }
+      // 若目标目录存在，快速重命名+后台删除（不存在则直接跳过）
+      await _deleteDirectoryFast(
+        targetDir,
+        onProgress: (progress, action) {
+          onDeleteProgress?.call(progress, action);
+        },
+      );
       await targetDir.create(recursive: true);
       LogUtil.i('$_logTag [Extract] 创建/清空目标目录: ${targetDir.path}');
 
@@ -206,20 +189,16 @@ class AppDirectories {
     Directory dir, {
     void Function(double progress, String action)? onProgress,
   }) async {
-    try {
-      if (!await dir.exists()) {
-        onProgress?.call(1, '无需删除');
-        return;
-      }
+    final tempPath =
+        '${dir.path}_to_be_deleted_${DateTime.now().microsecondsSinceEpoch}';
+    final tempDir = Directory(tempPath);
 
+    try {
       onProgress?.call(0, '重命名待删目录');
-      LogUtil.d('开始重命名待删目录: ${dir.path}');
-      final tempPath =
-          '${dir.path}_to_be_deleted_${DateTime.now().microsecondsSinceEpoch}';
-      final tempDir = Directory(tempPath);
+      LogUtil.d('$_logTag [Extract] 开始重命名待删目录: ${dir.path}');
 
       final renameWatch = Stopwatch()..start();
-      await dir.rename(tempPath); // O(1) 重命名，避免长时间阻塞
+      await dir.rename(tempPath);
       renameWatch.stop();
       LogUtil.d(
         '$_logTag [Extract] 重命名耗时 ${renameWatch.elapsedMilliseconds}ms -> ${tempDir.path}',
@@ -231,10 +210,31 @@ class AppDirectories {
         try {
           await tempDir.delete(recursive: true);
           LogUtil.d('$_logTag [Extract] 后台清理完成: ${tempDir.path}');
+        } on FileSystemException catch (e) {
+          LogUtil.w('$_logTag [Extract] 后台清理失败: ${e.message}');
         } catch (e) {
           LogUtil.w('$_logTag [Extract] 后台清理失败: $e');
         }
       }));
+    } on FileSystemException catch (e) {
+      // 目录不存在：无需处理
+      if (e.osError?.errorCode == 2) {
+        onProgress?.call(1, '无需删除');
+        return;
+      }
+
+      LogUtil.w('$_logTag [Extract] 快速删除失败，回退直接删除: ${e.message}');
+      onProgress?.call(0, '直接删除');
+      try {
+        await dir.delete(recursive: true);
+        onProgress?.call(1, '删除完成');
+      } on FileSystemException catch (e) {
+        if (e.osError?.errorCode == 2) {
+          onProgress?.call(1, '无需删除');
+          return;
+        }
+        rethrow;
+      }
     } catch (e) {
       LogUtil.w('$_logTag [Extract] 快速删除失败，回退直接删除: $e');
       onProgress?.call(0, '直接删除');

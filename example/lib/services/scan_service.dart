@@ -173,10 +173,19 @@ class ScanService {
 
     LogUtil.i('[Zip] 已保存用户选择的 zip: $savedZipPath (源文件: ${file.name})');
 
-    return extractZip(
+    final result = await extractZip(
       zipPath: savedZipPath,
       onDeleteProgress: onDeleteProgress,
       onExtractProgress: onExtractProgress,
     );
+    if (result.status == '解压完成') {
+      try {
+        await File(savedZipPath).delete();
+        LogUtil.i('[Zip] 已删除私有目录 zip: $savedZipPath');
+      } catch (e) {
+        LogUtil.w('[Zip] 删除私有目录 zip 失败: $e');
+      }
+    }
+    return result;
   }
 }

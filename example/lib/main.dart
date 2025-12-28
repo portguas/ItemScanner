@@ -11,7 +11,6 @@ import 'package:ui_design_system/ui_design_system.dart';
 import 'package:provider/provider.dart';
 import 'services/scan_service.dart';
 import 'utils/app_directories.dart';
-import 'utils/permission_service.dart';
 import 'state/home_state.dart';
 import 'services/scanner_initialization_service.dart';
 
@@ -69,15 +68,11 @@ class _MyHomePageState extends State<MyHomePage> {
   final MethodChannel _methodChannel =
       const MethodChannel('com.example.pda/native_to_flutter');
 
-  bool _permissionsRequested = false;
   final ScanService _scanService = const ScanService();
 
   @override
   void initState() {
     super.initState();
-
-    // 应用进入首页时请求权限
-    _requestPermissionsOnStart();
 
     _registerScanHandler();
   }
@@ -107,41 +102,6 @@ class _MyHomePageState extends State<MyHomePage> {
         LogUtil.d('未知方法: ${call.method}');
       }
     });
-  }
-
-  /// 应用启动时请求权限
-  Future<void> _requestPermissionsOnStart() async {
-    if (_permissionsRequested) return;
-
-    _permissionsRequested = true;
-
-    try {
-      if (kDebugMode) {
-        LogUtil.d('[HomePage] 开始请求存储权限...');
-      }
-
-      final hasPermission =
-          await PermissionService.requestAllStoragePermissions();
-
-      if (kDebugMode) {
-        LogUtil.d('[HomePage] 权限请求结果: $hasPermission');
-      }
-
-      if (!hasPermission && mounted) {
-        // 权限被拒绝，显示提示（但不强制要求）
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('存储权限未授予，同步功能可能无法正常使用'),
-            backgroundColor: Colors.orange,
-            duration: Duration(seconds: 3),
-          ),
-        );
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        LogUtil.e('[HomePage] 权限请求异常: $e');
-      }
-    }
   }
 
   void _makeRequest() async {
@@ -265,7 +225,7 @@ class _MyHomePageState extends State<MyHomePage> {
         type: FileType.custom,
         allowedExtensions: const ['zip'],
         allowMultiple: false,
-        withData: true,
+        withReadStream: true,
         dialogTitle: '选择 scm.zip',
       );
     } catch (e, st) {

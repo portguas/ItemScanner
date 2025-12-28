@@ -1,5 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 <!-- Camera permission for mobile_scanner -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -7,22 +6,11 @@
     
     <!-- UniPluginScanSDK 需要的权限 -->
     <uses-permission android:name="android.permission.VIBRATE" />
-    
-    <!-- 外部存储权限 - 用于访问文件/Download 目录（Android 13 以下） -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
-        android:maxSdkVersion="32" />
-    
-    <!-- 管理外部存储权限 (Android 11+)；仅在确有文件访问需求时保留 -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" 
-        tools:ignore="ScopedStorage" />
         
     <application
         android:label="scm"
         android:name="${applicationName}"
-        android:icon="@mipmap/scm"
-        android:requestLegacyExternalStorage="true">
+        android:icon="@mipmap/scm">
         <activity
             android:name=".MainActivity"
             android:exported="true"
