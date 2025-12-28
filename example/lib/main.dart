@@ -370,12 +370,14 @@ class _MyHomePageState extends State<MyHomePage> {
     try {
       final result = await _scanService.loadDocument(barcode);
       if (result.error != null) {
+        homeState.clearDisplay();
         _applyResult(result.error!);
         return;
       }
 
       final doc = result.document;
       if (doc == null) {
+        homeState.clearDisplay();
         final msg = '文件未找到或解析失败：$barcode';
         _applyResult(OperationResult(status: msg, snack: msg));
         return;
@@ -390,6 +392,7 @@ class _MyHomePageState extends State<MyHomePage> {
         showSnack: false,
       );
     } catch (e, st) {
+      homeState.clearDisplay();
       final msg = '处理条码失败：$e';
       LogUtil.e('[Scan] 处理条码异常: $e\n$st');
       _applyResult(OperationResult(status: msg, snack: msg));
