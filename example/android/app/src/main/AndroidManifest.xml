@@ -8,7 +8,7 @@
     <uses-permission android:name="android.permission.VIBRATE" />
         
     <application
-        android:label="scm"
+        android:label="SCM"
         android:name="${applicationName}"
         android:icon="@mipmap/scm">
         <activity

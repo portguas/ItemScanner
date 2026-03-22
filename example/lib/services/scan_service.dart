@@ -68,8 +68,8 @@ class ScanService {
     if (target == null) {
       LogUtil.w('[Scan] 文件未找到: $trimmed');
       final result = OperationResult(
-        status: '文件未找到',
-        snack: '未找到对应文件：$trimmed',
+        status: '未找到条码$trimmed对应数据',
+        snack: '请使用右上角同步功能同步最新数据',
       );
       return (document: null, error: result);
     }

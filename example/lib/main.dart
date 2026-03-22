@@ -1,16 +1,10 @@
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:logging_util/logging_util.dart';
-import 'package:path/path.dart' as p;
-import 'package:ui_design_system/ui_design_system.dart';
 import 'package:provider/provider.dart';
 import 'services/scan_service.dart';
-import 'utils/app_directories.dart';
 import 'state/home_state.dart';
 import 'services/scanner_initialization_service.dart';
 
@@ -45,11 +39,11 @@ class MyApp extends StatelessWidget {
         ),
       ],
       child: MaterialApp(
-        title: '物品扫描',
+        title: 'SCM扫描',
         theme: ThemeData(
           primarySwatch: Colors.blue,
         ),
-        home: const MyHomePage(title: '物品扫描'),
+        home: const MyHomePage(title: 'SCM扫描'),
       ),
     );
   }
@@ -104,10 +98,6 @@ class _MyHomePageState extends State<MyHomePage> {
     });
   }
 
-  void _makeRequest() async {
-    await _mockScan();
-  }
-
   @override
   Widget build(BuildContext context) {
     final textTheme = Theme.of(context).textTheme;
@@ -125,14 +115,6 @@ class _MyHomePageState extends State<MyHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        leading: kDebugMode
-            ? IconButton(
-                onPressed:
-                    state.checkingZip || state.loading ? null : _makeRequest,
-                icon: const Icon(Icons.qr_code_2_outlined),
-                tooltip: '模拟扫描',
-              )
-            : null,
         title: Text(widget.title),
         centerTitle: true,
         actions: [
@@ -203,8 +185,9 @@ class _MyHomePageState extends State<MyHomePage> {
                     )
                   : const Center(
                       child: Text(
-                        '暂无数据，请扫描',
+                        '请点击右边的扫描按钮扫描条形码\n支持查询码、入库单编码、出库单编码',
                         style: TextStyle(fontSize: 16),
+                        textAlign: TextAlign.center,
                       ),
                     ),
             ),
@@ -342,18 +325,6 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
-  Future<void> _mockScan() async {
-    const mockBarcode = 'OUT202512160001';
-    try {
-      await _ensureMockFile(mockBarcode);
-      await _handleBarcode(mockBarcode);
-    } catch (e, st) {
-      final msg = '加载 mock 数据失败：$e';
-      LogUtil.e('[MockScan] 失败: $e\n$st');
-      _applyResult(OperationResult(status: msg, snack: msg));
-    }
-  }
-
   Future<void> _handleBarcode(String barcode) async {
     if (!mounted) return;
     final homeState = context.read<HomeState>();
@@ -384,10 +355,11 @@ class _MyHomePageState extends State<MyHomePage> {
       }
 
       _showDocument(doc);
+      final foundMessage = _buildFoundMessage(barcode, doc);
       _applyResult(
         OperationResult(
-          status: '找到文件：$barcode',
-          snack: '找到文件：$barcode',
+          status: foundMessage,
+          snack: foundMessage,
         ),
         showSnack: false,
       );
@@ -559,16 +531,17 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  Future<void> _ensureMockFile(String barcode) async {
-    final extractDir = await AppDirectories.getPdaExtractDirectory();
-    if (!await extractDir.exists()) {
-      await extractDir.create(recursive: true);
-    }
-    final file = File(p.join(extractDir.path, '$barcode.json'));
-    if (await file.exists()) return;
+  String _buildFoundMessage(String barcode, DocumentData doc) {
+    final normalizedBarcode = barcode.trim().toUpperCase();
+    final title = doc.title.trim();
 
-    final data = await rootBundle.loadString('assets/data/$barcode.json');
-    await file.writeAsString(data);
+    if (title.contains('出库单') || normalizedBarcode.startsWith('OUT')) {
+      return '找到出库单：$barcode';
+    }
+    if (title.contains('入库单') || normalizedBarcode.startsWith('IN')) {
+      return '找到入库单：$barcode';
+    }
+    return '找到查询码：$barcode';
   }
 }
 
